@@ -1,7 +1,7 @@
 import express from "express";
 import OpenAI from "openai";
 import dotenv from "dotenv";
-import { schedule } from "node-cron";
+import serverless from "serverless-http";
 
 // Load environment variables
 dotenv.config();
@@ -44,9 +44,9 @@ const riddles = [
   // Add more riddles for levels 3 to 49...
 ];
 
-const removeTripleBackticksAndJson = (jsonString) => {
-  if (jsonString.startsWith("```json") && jsonString.endsWith("```")) {
-    return jsonString.slice(7, -3).trim();
+const removeTripleBackticks = (jsonString) => {
+  if (jsonString.startsWith("```") && jsonString.endsWith("```")) {
+    return jsonString.slice(3, -3).trim();
   }
   return jsonString;
 };
@@ -66,9 +66,10 @@ const generateRiddle = async (level) => {
       model: "deepseek-chat",
     });
 
-    const response = completion.choices[0].message.content;
+    let response = completion.choices[0].message.content;
+    response = removeTripleBackticks(response);
     console.log(response);
-    const riddle = JSON.parse(removeTripleBackticksAndJson(response));
+    const riddle = JSON.parse(response);
     return { level, ...riddle };
   } catch (error) {
     console.error("Failed to generate riddle:", error);
@@ -96,15 +97,13 @@ schedule("0 0 * * *", () => {
 });
 
 // API 1: Get Riddle by Level
-app.get("/getRiddle/:level", async (req, res) => {
+app.get("/getRiddle/:level", (req, res) => {
   const level = parseInt(req.params.level);
   if (level < 1 || level > 49) {
     return res.status(400).json({ error: "Level must be between 1 and 49." });
   }
 
-  const riddle = await generateRiddle(level);
-  console.log(riddle);
-
+  const riddle = riddles.find((r) => r.level === level);
   if (!riddle) {
     return res.status(404).json({ error: "Riddle not found for this level." });
   }
@@ -150,11 +149,15 @@ app.post("/validateAnswer", async (req, res) => {
     model: "deepseek-chat",
   });
 
-  const response =
-    completion.choices[0].message.content || "No reasoning provided";
+  const response = completion.choices[0].message.content;
   const isCorrect = response.toLowerCase().includes("true");
+  const reasoning =
+    response
+      .split("\n")
+      .find((line) => line.toLowerCase().includes("reasoning")) ||
+    "No reasoning provided.";
 
-  res.json({ Answer: isCorrect, Reasoning: response });
+  res.json({ Answer: isCorrect, Reasoning: reasoning });
 });
 
 // API 4: Ask AI for Reasoning (Fallback)
@@ -173,17 +176,19 @@ app.post("/askAIForReasoning", async (req, res) => {
       model: "deepseek-chat",
     });
 
-    const response =
-      completion.choices[0].message.content || "No reasoning provided";
+    const response = completion.choices[0].message.content;
     const isCorrect = response.toLowerCase().includes("true");
+    const reasoning =
+      response
+        .split("\n")
+        .find((line) => line.toLowerCase().includes("reasoning")) ||
+      "No reasoning provided.";
 
-    res.json({ Answer: isCorrect, Reasoning: response });
+    res.json({ Answer: isCorrect, Reasoning: reasoning });
   } catch (error) {
     res.status(500).json({ error: "Failed to get reasoning from AI." });
   }
 });
 
-// Start the server
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+// Export the app wrapped in serverless-http
+export const handler = serverless(app);
