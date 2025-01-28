@@ -2,6 +2,7 @@ import express from "express";
 import OpenAI from "openai";
 import dotenv from "dotenv";
 import serverless from "serverless-http";
+import { schedule } from "node-cron";
 
 // Load environment variables
 dotenv.config();
